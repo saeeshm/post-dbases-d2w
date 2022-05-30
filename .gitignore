@@ -1,0 +1,12 @@
+.git
+*.Rproj
+.Rproj.user
+.Rprofile
+.Rhistory
+.RData
+.Ruserdata
+*/__pycache__
+csv/
+credentials.json
+
+
