@@ -1,7 +1,7 @@
 # Author: Saeesh Mangwani
 # Date: 2021-05-20
 
-# Description: A script that exports a CSV file from postgres containing the pacfish data to be posted to depth2water
+# Description: Exporting pacfish data to CSV format based on a given data range.
 
 # ==== Loading libraries ====
 library(DBI)
@@ -13,14 +13,16 @@ library(tidyr)
 library(purrr)
 library(stringr)
 library(readr)
+source('scripts/help_funcs.R')
 
 # ==== Paths and global variables ====
 
 # Path to credentials
 dbase_credentials_path <- 'credentials.json'
 
-# Path to exported csv
-csv_path <- 'csv/pacfish'
+# Path to exported csvs
+csv_path <- 'data/csv/pacfish'
+dir_check_create(csv_path)
 
 # ==== Opening database connection ====
 
@@ -35,8 +37,7 @@ conn <- dbConnect(RPostgres::Postgres(),
 # ==== Daily data ====
 
 # Data query
-query <- format_simple_query('pacfish', 'hourly', 'Date', 
-                             '2022-04-01', '2022-05-30')
+query <- format_simple_query('pacfish', 'daily')
 
 # Reading data
 df <- dbGetQuery(conn, query)
@@ -67,6 +68,7 @@ walk(dfs[2:length(dfs)], ~{
 write_csv(daily, file.path(csv_path, 'pacfish-daily.csv'))
 rm(daily)
 gc()
+
 # ==== Hourly data ====
 
 # Data query
@@ -113,3 +115,6 @@ hourly <- hourly %>%
 
 # Writing to disk
 write_csv(hourly, file.path(csv_path, 'pacfish-hourly.csv'))
+
+# Closing database connection
+dbDisconnect(conn)

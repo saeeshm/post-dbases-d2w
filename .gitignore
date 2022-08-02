@@ -6,7 +6,7 @@
 .RData
 .Ruserdata
 */__pycache__
-csv/
+data/
 credentials.json
 
 
