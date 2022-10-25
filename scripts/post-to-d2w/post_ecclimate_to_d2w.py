@@ -5,9 +5,11 @@
 
 # %% ===== Loading libraries =====
 import os
-os.chdir('../..')
+from pathlib import Path
+os.chdir(Path(__file__).parent.parent.parent)
 import logging
 import pandas as pd
+from json import load
 from numpy import isnan
 from datetime import datetime
 from dateutil.parser import parse
@@ -16,39 +18,48 @@ from depth2water import create_client, get_climate_mapping, get_climate_station_
 # %% ===== Paths and global variables =====
 
 # Path to station file
-station_file_path = '/Users/saeesh/code/GWProjects/databases/post-dbases-d2w/data/stations/ecclimate_station_data.csv'
+station_file_path = 'data/stations/ecclimate_station_data.csv'
 
 # Path to daily data file
-daily_data_path = '/Users/saeesh/code/GWProjects/databases/post-dbases-d2w/data/csv/ecclimate/ecclimate-daily.csv'
+daily_data_path = 'data/csv/ecclimate/ecclimate-daily.csv'
 
 # Path to temporary directory for storing posting files
-data_temp_path = '/Users/saeesh/code/GWProjects/databases/post-dbases-d2w/data/temp/ecclimate'
+data_temp_path = 'data/temp/ecclimate'
+
+# Path to client credientials
+client_creds_path = 'client_credentials.json'
 
 # %% ===== Initializing update parameters =====
 #Date range of update data
-start_date = str(parse("2018-01-01T00:00:00-08:00"))
+start_date = str(parse("1900-01-01T00:00:00-08:00"))
 end_date = str(parse("2022-07-10T00:00:00-08:00"))
 
 # %% ===== Initializing parameters =====
 
 # Setting up logging
-logging.basicConfig(level=logging.DEBUG)
-# logging.basicConfig(level=logging.ERROR)
+# logging.basicConfig(level=logging.DEBUG)
 
-# Initializing application parameters
-USERNAME = "gwadmin"
-PASSWORD = "kowe#0485"
-CLIENT_ID = 'x4u9RdFzzSfYs4Dau1c2bdEZ66RtGMuRUe7OWX1L'
-CLIENT_SECRET = 'qM3s44Uoyi6CePPLHKV6WG359JVVHtaDelSyQz40QNU1SFcVit2ApXqsS9djxdnDxLiTUA77wxb4TmUM2bpA4mqB0GTj2Lq5Vw3DIU8CuhLDIxPlDSwXMcSA6GQm6u25'
-TEST_USER_ID = 24
+# Reading client credentials from file
+creds = load(open(client_creds_path,))
+
+# Setting owner ID for this database
+OWNER_ID = 8
 
 # Creating a client
-client = create_client(USERNAME, PASSWORD, CLIENT_ID, CLIENT_SECRET, host = 'localhost:8000', scheme='http')
+client = create_client(
+    creds['username'], 
+    creds['password'], 
+    creds['client_id'], 
+    creds['client_secret'], 
+    host = 'localhost:8000', 
+    scheme='http'
+)
 
 # %% ===== Reading data =====
 
 # Reading the most recent station metadata file
-metadata = pd.read_csv(station_file_path, dtype = {
+metadata = pd.read_csv(station_file_path)
+dtype_dict = {
     'Name': 'str',
     'Province': 'str',
     'Climate ID': 'str',
@@ -68,7 +79,8 @@ metadata = pd.read_csv(station_file_path, dtype = {
     'DLY Last Year': 'float64',
     'MLY First Year': 'float64',
     'MLY Last Year': 'float64',
-}) 
+}
+metadata = metadata.astype(dtype_dict)
 
 # Daily data CSV file
 daily = pd.read_csv(daily_data_path, parse_dates=[2])
@@ -194,9 +206,9 @@ def format_curr_data_df(currdf):
 
 # Function that returns an empty string if the input is NaN
 def emptyIfNan(x):
-    if type(x) == str: return x
+    if type(x) == str: 
+        return '' if x == 'nan' else x
     return '' if isnan(x) else x
-
 # %% ===== Checking stations on d2w =====
 
 # Getting unique station IDs:
@@ -205,11 +217,14 @@ stat_ids = metadata['Station ID'].unique()
 for stat in stat_ids:
     # Checking if the station is present
     result = client.get_station_by_station_id(stat)
+    # Removing results that are not climate stations
+    result['results'] = [station for station in result['results'] if station['monitoring_type'] == 'CLIMATE']
     # If not, creating it
     if len(result['results']) == 0:
         print('Creating station ' + stat)
         station_mapping = get_climate_station_mapping({
             'station_id': stat,
+            'owner': OWNER_ID,
             'location_name': pull_metadata(stat, 'Name'),
             'longitude': pull_metadata(stat, 'Longitude (Decimal Degrees)'),
             'latitude': pull_metadata(stat, 'Latitude (Decimal Degrees)'),
@@ -228,8 +243,8 @@ for stat in stat_ids:
         isdiscrepant = any([
             curr_station_status != pull_statquery(result, 'monitoring_status'),
             pull_metadata(stat, 'Elevation (m)') != pull_statquery(result, 'ground_elevation_m'),
-            pull_metadata(stat, 'Longitude (Decimal Degrees)') != pull_statquery(result, 'longitude'),
-            pull_metadata(stat, 'Latitude (Decimal Degrees)') != pull_statquery(result, 'latitude')
+            round(pull_metadata(stat, 'Longitude (Decimal Degrees)'), 5) != round(pull_statquery(result, 'longitude'), 5),
+            round(pull_metadata(stat, 'Latitude (Decimal Degrees)'), 5) != round(pull_statquery(result, 'latitude'), 5)
         ])
         if isdiscrepant:
             print('Station status has changed - updating...')
@@ -250,6 +265,8 @@ print('Station updates complete')
 
 # Getting the station of ids of all stations included in the current update dataset
 stat_ids = daily['ec_station_id'].unique()
+temp = stat_ids
+stat_ids = stat_ids[0:10]
 # stat = stat_ids[0]
 # stat = '14'
 
@@ -363,6 +380,7 @@ print('Completed station data updates')
 # Defining column mappings
 file_mappings = {
     'station_id':'ec_station_id',
+    'datetime': 'datetime',
     # 'station': 'STATION_NAME',
     'max_temperature_c': 'max_temp', 
     'max_temp_flag': 'max_temp_flag', 
@@ -386,29 +404,40 @@ file_mappings = {
     'direction_max_gust_flag': 'dir_of_max_gust_flag', 
     'speed_max_gust_kmh': 'spd_of_max_gust', 
     'speed_max_gust_flag': 'spd_of_max_gust_flag',
-    'owner': TEST_USER_ID,
+    'owner': OWNER_ID,
+    'published': True,
+    # Extra params that are unnecessary
+    'water_temperature_c': '',
+    'water_temperature_flag': '',
     'comments': ''
 }
 
 # File names of posting csvs
-fnames = os.listdir(data_temp_path)
+fnames = [file for file in os.listdir(data_temp_path) if file.endswith('csv')]
 
 # Empty list to store the filenames of cleaning CSV
 fclean = []
+errstats = []
 
 if len(fnames) == 0:
     print('No new data files to post')
 else:
     # Calling the client to post each file
     for name in fnames:
-        print('Uploaded new data from file: ' + name)
+        print('Uploading new data from file: ' + name)
         fpath = data_temp_path + '/' + name
-        client.post_csv_file(fpath, get_climate_mapping(file_mappings))
-        fclean.extend([name])
-
+        try:
+            client.post_csv_file(fpath, get_climate_mapping(file_mappings))
+            fclean.extend([name])
+        except:
+            print('Error with station: ' + name)
+            errstats.extend([name])
+            
 # Cleaning temporary directories
 for name in fclean:
     print('Cleaning file: ' + name)
     os.remove(data_temp_path + '/' + name)
 
 print('Completed new data posting')
+
+# %%

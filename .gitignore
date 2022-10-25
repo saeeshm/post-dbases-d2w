@@ -8,5 +8,6 @@
 */__pycache__
 data/
 credentials.json
+client_credentials.json
 
 

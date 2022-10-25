@@ -5,10 +5,12 @@
 
 # %% ===== Loading libraries =====
 import os
-os.chdir('../..')
+from pathlib import Path
+os.chdir(Path(__file__).parent.parent.parent)
 import logging
 import pandas as pd
-from numpy import isnan
+from json import load
+from numpy import isnan 
 from datetime import datetime
 from dateutil.parser import parse
 from depth2water import create_client, get_surface_water_mapping, get_surface_water_station_mapping
@@ -16,33 +18,44 @@ from depth2water import create_client, get_surface_water_mapping, get_surface_wa
 # %% ===== Paths and global variables =====
 
 # Path to station file
-station_file_path = '/Users/saeesh/code/GWProjects/databases/post-dbases-d2w/data/stations/pacfish_station_data.csv'
+station_file_path = 'data/stations/pacfish_station_data.csv'
 
 # Path to daily data file
-daily_data_path = '/Users/saeesh/code/GWProjects/databases/post-dbases-d2w/data/csv/pacfish/pacfish-daily.csv'
+daily_data_path = 'data/csv/pacfish/pacfish-daily.csv'
 
 # Path to temporary directory for storing posting files
-data_temp_path = '/Users/saeesh/code/GWProjects/databases/post-dbases-d2w/data/temp/pacfish'
+data_temp_path = 'data/temp/pacfish'
+
+# Path to client credientials
+client_creds_path = 'client_credentials.json'
+
 
 # %% ===== Initializing update parameters =====
+
 #Date range of update data
 start_date = str(parse("1950-01-01T00:00:00-08:00"))
 end_date = str(parse("2022-07-10T00:00:00-08:00"))
 
-# %% ===== Initializing parameters =====
+# %% ===== Initializing client =====
 
 # Setting up logging
 # logging.basicConfig(level=logging.DEBUG)
 
-# Initializing application parameters
-USERNAME = "gwadmin"
-PASSWORD = "kowe#0485"
-CLIENT_ID = 'x4u9RdFzzSfYs4Dau1c2bdEZ66RtGMuRUe7OWX1L'
-CLIENT_SECRET = 'qM3s44Uoyi6CePPLHKV6WG359JVVHtaDelSyQz40QNU1SFcVit2ApXqsS9djxdnDxLiTUA77wxb4TmUM2bpA4mqB0GTj2Lq5Vw3DIU8CuhLDIxPlDSwXMcSA6GQm6u25'
-TEST_USER_ID = 24
+# Reading client credentials from file
+creds = load(open(client_creds_path,))
+
+# Setting owner ID for this database
+OWNER_ID = 9
 
 # Creating a client
-client = create_client(USERNAME, PASSWORD, CLIENT_ID, CLIENT_SECRET, host = 'localhost:8000', scheme='http')
+client = create_client(
+    creds['username'], 
+    creds['password'], 
+    creds['client_id'], 
+    creds['client_secret'], 
+    host = 'localhost:8000', 
+    scheme='http'
+)
 
 # %% ===== Reading data =====
 
@@ -52,28 +65,15 @@ metadata = pd.read_csv(station_file_path)
 # Daily data CSV file
 daily = pd.read_csv(daily_data_path, parse_dates=[2])
 
-# Getting unique station IDs:
-stat_ids = metadata['station_id'].unique()
+# %% ===== Script helper functions =====
 
-# %% ===== Checking stations on d2w =====
-for stat in stat_ids:
-    # Checking if the station is present
-    result = client.get_station_by_station_id(stat)
-    # If not, creating it
-    if len(result) == 0:
-        print('Creating station ' + stat)
-        station_mapping = get_surface_water_station_mapping({
-            'station_id': stat,
-            'location_name': metadata.loc[metadata['station_id'] == stat].iloc[0]['station_name'],
-            'longitude': metadata.loc[metadata['station_id'] == stat].iloc[0]['long'],
-            'latitude': metadata.loc[metadata['station_id'] == stat].iloc[0]['lat'],
-            'prov_terr_state_lc': 'BC',
-        })
-        new_station = client.create_station(station_mapping)
-    else:
-        print('Station ' + stat + ' already present')
+# Helper function to quickly access values from the downloaded metadata file for a station
+def pull_metadata(statid, varname):
+    return metadata.loc[metadata['station_id'] == statid].iloc[0][varname]
 
-# %% ===== Helper functions for comparing update to existing data =====
+# Helper function to quickly access values from a "result" dictionary, obtained from a station-specific d2w query
+def pull_statquery(resultobj, varname):
+    return resultobj['results'][0][varname]
 
 # A helper function to read multipage responses from the get-function
 def get_surface_water_data_multipage(station_id, start_date=None, end_date=None, url=None):
@@ -118,13 +118,63 @@ def format_curr_data_df(currdf):
 
 # Function that returns an empty string if the input is NaN
 def emptyIfNan(x):
-    if type(x) == str: return x
+    if type(x) == str: 
+        return '' if x == 'nan' else x
     return '' if isnan(x) else x
+
+# %% ===== Checking stations on d2w =====
+
+# Getting unique station IDs from the metadata file:
+stat_ids = metadata['station_id'].unique()
+
+for stat in stat_ids:
+    # Checking if the station is present
+    result = client.get_station_by_station_id(stat)
+     # Removing results that are not surface water stations
+    result['results'] = [station for station in result['results'] if station['monitoring_type'] == 'SURFACE_WATER']
+    # If not, creating it
+    if len(result['results']) == 0:
+        print('Creating station ' + stat)
+        station_mapping = get_surface_water_station_mapping({
+            'station_id': stat,
+            'owner': OWNER_ID,
+            'location_name': pull_metadata(stat, 'station_name'),
+            'longitude': pull_metadata(stat, 'long'),
+            'latitude': pull_metadata(stat, 'lat'),
+            'prov_terr_state_lc': 'BC'
+        })
+        new_station = client.create_station(station_mapping)
+    else:
+        print('Station ' + stat + ' already present')
+        # Calculating station active status (giving a 1-year leeway period)
+        last_yr = pull_metadata(stat, 'end_date')
+        # If any of the last years are greater than or equal to the 1-minus this year, changing active status
+        isactive = datetime.strptime(last_yr, '%Y/%m/%d %H:%M').year >= (datetime.today().year - 1)
+        # Getting either active/discontinued status from isactive
+        curr_station_status = 'ACTIVE' if isactive else 'DISCONTINUED'
+        # If any of the parameters are not the same between metadata and those stored on file, updating
+        isdiscrepant = any([
+            curr_station_status != pull_statquery(result, 'monitoring_status'),
+            round(pull_metadata(stat, 'long'), 5) != round(pull_statquery(result, 'longitude'), 5),
+            round(pull_metadata(stat, 'lat'), 5) != round(pull_statquery(result, 'latitude'), 5)
+        ])
+        if isdiscrepant:
+            print('Station status has changed - updating...')
+            updict = result['results'][0]
+            # updict['owner'] = OWNER_ID
+            updict['monitoring_status'] = emptyIfNan(curr_station_status)
+            updict['longitude'] = emptyIfNan(pull_metadata(stat, 'long'))
+            updict['latitude'] = emptyIfNan(pull_metadata(stat, 'lat'))
+            client.update_station(id=updict['id'], data=updict)
+        else:
+            print('No changes made to station ' + stat)
+
+print('Station updates complete')
 
 # %% ===== Categorizing new data for update or post =====
 
 # Getting the station of ids of all stations included in the current update dataset
-stat_ids = daily['station_id'].unique()
+stat_ids = daily['station_number'].unique()
 
 for stat in stat_ids:
     print(stat)
@@ -143,6 +193,7 @@ for stat in stat_ids:
     if len(curr_data) == 0:
         # Writing all new data to csv for posting
         if updatedf.shape[0] > 0:
+            print('Writing all new rows for ' + stat + ' to a CSV for posting, no database updates required')
             fpath = data_temp_path + '/' + stat + '_' + datetime.today().strftime('%Y-%m-%d') + '.csv'
             updatedf.to_csv(fpath, index=False, na_rep='NA')
         else:
@@ -163,15 +214,15 @@ for stat in stat_ids:
     # Using an indicator left join to see which rows are new and which already exist
     left_joined = updatedf.merge(currdf, how='left', indicator=True, on=['station_number', 'datetime'])
 
-    # Those that say left-only new, and therefore need to be directly uploaded
+    # Those that say left-only are new, and therefore need to be directly uploaded
     addrows = left_joined[left_joined._merge == 'left_only'][['station_number', 'datetime']]
     addrows = addrows.merge(updatedf, how='left', on=['station_number', 'datetime'])
 
-    # Those that say both need to be updated/edited on the server directly
+    # Those that say both may need to be updated/edited on the server directly
     updaterows = left_joined[left_joined._merge == 'both'][['station_number', 'datetime']]
     updaterows = updaterows.merge(updatedf, how='left', on=['station_number', 'datetime'])
-    # Of the update rows, joining on all columns to only include for update those rows where some value has changed (i.e there are differences between the downloaded and stored versions). In this case, the newly downloaded version takes precedence
-    left_joined = updaterows.merge(currdf, how='left', indicator=True)
+    # Of the update rows, joining on all columns to only include for update those rows where some value has changed (i.e there are differences between the downloaded and stored versions). In this case, the newly downloaded version takes precedence (note that station name is dropped as it is not a value column)
+    left_joined = updaterows.drop('station_name', axis = 1).merge(currdf.drop('station_name', axis = 1), how='left', indicator=True)
     updaterows = left_joined[left_joined._merge == 'left_only'].drop('_merge', axis = 1)
 
     # For the rows that need updating
@@ -209,7 +260,9 @@ for stat in stat_ids:
     else:
         print('0 rows to post for station ' + stat)
 
-# %% ===== Posting newly data csvs =====
+print('Time series updates complete')
+
+# %% ===== Posting new data csvs =====
 
 # Defining column mappings
 file_mappings = {
@@ -219,22 +272,31 @@ file_mappings = {
     'water_level_compensated_m': 'sensor_depth',
     'temperature_c': 'water_temperature',
     'barometric_pressure_m': 'pressure',
-    'owner': TEST_USER_ID,
-    'comments': ''
+    'owner': OWNER_ID,
+    'comments': '',
+    'published': True
 }
-# File names of posting csvs
-fnames = os.listdir(data_temp_path)
 
-# If no files are present, posting a message and closing
+# File names of posting csvs
+fnames = [file for file in os.listdir(data_temp_path) if file.endswith('csv')]
+
+# Empty list to store the filenames of cleaning CSV
+fclean = []
+
 if len(fnames) == 0:
     print('No new data files to post')
 else:
     # Calling the client to post each file
     for name in fnames:
-        print('Uploaded new data from file: ' + name)
+        print('Uploading new data from file: ' + name)
         fpath = data_temp_path + '/' + name
         client.post_csv_file(fpath, get_surface_water_mapping(file_mappings))
+        fclean.extend([name])
 
-    # Cleaning temporary directories
-    for name in fnames:
-        os.remove(data_temp_path + '/' + name)
+# Cleaning temporary directories
+for name in fclean:
+    print('Cleaning file: ' + name)
+    os.remove(data_temp_path + '/' + name)
+
+print('Completed new data posting')
+# %%

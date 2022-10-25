@@ -9,7 +9,20 @@ library(DBI)
 library(RPostgres)
 library(rjson)
 library(readr)
+library(optparse)
+library(lubridate)
 source('scripts/help_funcs.R')
+
+# ==== Initializing option parsing ====
+option_list <-  list(
+  make_option(c("-s", "--startdate"), type="character", default=(Sys.Date() - 30), 
+              help="A year month combination indicating the start date for data download. [Default= %default]", 
+              metavar="character")
+)
+
+# Parse any provided options and store them in a list
+opt_parser = OptionParser(option_list=option_list)
+opt = parse_args(opt_parser)
 
 # ==== Paths and global variables ====
 
@@ -33,7 +46,8 @@ conn <- dbConnect(RPostgres::Postgres(),
 # ==== Daily data ====
 
 # Data query
-query <- format_simple_query('ecclimate', 'daily')
+query <- format_simple_query('ecclimate', 'daily', 
+                             date_col = 'datetime', start_date = ymd(opt$startdate))
 
 # Reading data
 daily <- dbGetQuery(conn, query)
@@ -46,13 +60,14 @@ gc()
 # ==== Hourly data ====
 
 # Data query
-query <- format_simple_query('ecclimate', 'hourly')
-
-# Reading data
-hourly <- dbGetQuery(conn, query)
-
-# Writing to csv
-write_csv(hourly, file.path(csv_path, 'ecclimate-hourly.csv'))
+# query <- format_simple_query('ecclimate', 'hourly', 
+#                              date_col = 'datetime', start_date = ymd(opt$startdate))
+# 
+# # Reading data
+# hourly <- dbGetQuery(conn, query)
+# 
+# # Writing to csv
+# write_csv(hourly, file.path(csv_path, 'ecclimate-hourly.csv'))
 
 # Closing database connection
 dbDisconnect(conn)
