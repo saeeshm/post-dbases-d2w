@@ -11,36 +11,53 @@ import logging
 import pandas as pd
 from json import load
 from numpy import isnan
-from datetime import datetime
-from dateutil.parser import parse
+from optparse import OptionParser
+from datetime import datetime, timedelta
 from depth2water import create_client, get_climate_mapping, get_climate_station_mapping
+
+#%% Initializing option parsing
+parser = OptionParser()
+parser.add_option(
+    "-s", "--startdate", 
+    dest="startdate",
+    default=(datetime.today() - timedelta(days=31)).strftime("%Y-%m-%dT00:00:00-00:00"),
+    help="The start date of the date range for which data are being posted. Defaults to 31 days before today")
+parser.add_option(
+    "-e", "--enddate", 
+    dest="enddate",
+    default=datetime.today().strftime("%Y-%m-%dT00:00:00-00:00"),
+    help="The end date of the date range for which data are being posted. Defaults to today")
+(options, args) = parser.parse_args()
 
 # %% ===== Paths and global variables =====
 
+# Client credentials from JSON
+creds = load(open('options/client_credentials.json',))
+
+# Filepaths
+fpaths = load(open('options/filepaths.json', ))
+
 # Path to station file
-station_file_path = 'data/stations/ecclimate_station_data.csv'
+station_file_path = fpaths['ecclimate-metadata']
 
 # Path to daily data file
-daily_data_path = 'data/csv/ecclimate/ecclimate-daily.csv'
+daily_data_path = fpaths['daily-post-dir'] + '/ecclimate/ecclimate-daily.csv'
 
 # Path to temporary directory for storing posting files
-data_temp_path = 'data/temp/ecclimate'
-
-# Path to client credientials
-client_creds_path = 'client_credentials.json'
+data_temp_path = fpaths['temp-dir'] + '/ecclimate'
 
 # %% ===== Initializing update parameters =====
-#Date range of update data
-start_date = str(parse("1900-01-01T00:00:00-08:00"))
-end_date = str(parse("2022-07-10T00:00:00-08:00"))
+start_date = options.startdate
+end_date = options.enddate
+
+#%% Manual data inputs - for use when script testing
+# start_date = (datetime.today() - timedelta(days=31)).strftime("%Y-%m-%dT00:00:00-00:00")
+# end_date =datetime.today().strftime("%Y-%m-%dT00:00:00-00:00")
 
 # %% ===== Initializing parameters =====
 
 # Setting up logging
-# logging.basicConfig(level=logging.DEBUG)
-
-# Reading client credentials from file
-creds = load(open(client_creds_path,))
+logging.basicConfig(level=logging.DEBUG)
 
 # Setting owner ID for this database
 OWNER_ID = 8
@@ -83,38 +100,44 @@ dtype_dict = {
 metadata = metadata.astype(dtype_dict)
 
 # Daily data CSV file
-daily = pd.read_csv(daily_data_path, parse_dates=[2])
-daily = daily.loc[daily['ec_station_id'] != 5889]
-# Setting types for relevant variables
-dtype_dict = {
-    'ec_station_id': 'str',
-    'station_name': 'str',
-    'datetime': 'datetime64',
-    'max_temp': 'float64',
-    'max_temp_flag': 'str',
-    'min_temp': 'float64',
-    'min_temp_flag': 'str',
-    'mean_temp': 'float64',
-    'mean_temp_flag': 'str',
-    'heat_deg_days': 'float64', 
-    'heat_deg_days_flag': 'str',
-    'cool_deg_days': 'float64', 
-    'cool_deg_days_flag': 'str', 
-    'total_rain': 'float64', 
-    'total_rain_flag': 'str',  
-    'total_snow': 'float64', 
-    'total_snow_flag': 'str', 
-    'total_precip': 'float64', 
-    'total_precip_flag': 'str', 
-    'snow_on_grnd': 'float64', 
-    'snow_on_grnd_flag': 'str', 
-    'dir_of_max_gust': 'float64', 
-    'dir_of_max_gust_flag': 'str', 
-    'spd_of_max_gust': 'float64', 
-    'spd_of_max_gust_flag': 'str'
-}
-
-daily = daily.astype(dtype_dict)
+try:
+    daily = pd.read_csv(daily_data_path, parse_dates=[2])
+    # Setting types for relevant variables
+    dtype_dict = {
+        'ec_station_id': 'str',
+        'station_name': 'str',
+        'datetime': 'datetime64',
+        'max_temp': 'float64',
+        'max_temp_flag': 'str',
+        'min_temp': 'float64',
+        'min_temp_flag': 'str',
+        'mean_temp': 'float64',
+        'mean_temp_flag': 'str',
+        'heat_deg_days': 'float64', 
+        'heat_deg_days_flag': 'str',
+        'cool_deg_days': 'float64', 
+        'cool_deg_days_flag': 'str', 
+        'total_rain': 'float64', 
+        'total_rain_flag': 'str',  
+        'total_snow': 'float64', 
+        'total_snow_flag': 'str', 
+        'total_precip': 'float64', 
+        'total_precip_flag': 'str', 
+        'snow_on_grnd': 'float64', 
+        'snow_on_grnd_flag': 'str', 
+        'dir_of_max_gust': 'float64', 
+        'dir_of_max_gust_flag': 'str', 
+        'spd_of_max_gust': 'float64', 
+        'spd_of_max_gust_flag': 'str'
+    }
+    daily = daily.astype(dtype_dict)
+    # Removing 'nan' string values that are populated
+    daily = daily.applymap(lambda x: '' if (type(x) == str) & (x == 'nan') else x)
+    # Filtering daily dataset to only include stations reference in the metadata file (this ensures that data with no stations are excluded)
+    daily = daily[daily['ec_station_id'].isin(metadata['Station ID'])]
+except:
+    print('No daily dataset found. This script will only complete a metadata update')
+    daily = None
 
 # %% ===== Script helper functions =====
 
@@ -261,119 +284,119 @@ for stat in stat_ids:
 
 print('Station updates complete')
 
+# %%
+
 # %% ===== Categorizing new data for update or post =====
 
-# Getting the station of ids of all stations included in the current update dataset
-stat_ids = daily['ec_station_id'].unique()
-temp = stat_ids
-stat_ids = stat_ids[0:10]
-# stat = stat_ids[0]
-# stat = '14'
+if daily is None:
+    print('No daily data available in this time range. Skipping data update...')
+else:
+    # Getting the station of ids of all stations included in the current update dataset 
+    stat_ids = daily['ec_station_id'].unique()
+    # temp = stat_ids
+    # stat_ids = stat_ids[0:10]
+    for stat in stat_ids:
+    
+        # Getting all the new data for this station
+        updatedf = daily[daily['ec_station_id'] == stat]
 
-for stat in stat_ids:
- 
-    # Getting all the new data for this station
-    updatedf = daily[daily['ec_station_id'] == stat]
+        # Getting all current data for the station within the data range
+        curr_data = get_climate_data_multipage(
+            station_id=stat, 
+            start_date=(pd.to_datetime(start_date) - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00-00:00"),
+            end_date=end_date
+        )
 
-    # Getting all current data for the station within the data range
-    curr_data = get_climate_data_multipage(
-        station_id=stat, 
-        start_date=start_date, 
-        end_date=end_date
-    )
+        # If there is no current data present, just pushing new data directly to a csv to be posted (i.e no direct database updates required)
+        if len(curr_data) == 0:
+            # Writing all new data to csv for posting
+            if updatedf.shape[0] > 0:
+                print('No data in this time period for station ' + stat + '. Writing new data to post...')
+                fpath = data_temp_path + '/' + stat + '_' + datetime.today().strftime('%Y-%m-%d') + '.csv'
+                updatedf.to_csv(fpath, index=False, na_rep='',  )
+            else:
+                print('No rows to post for station ' + stat)
+            # Skipping iteration to the next station, as no updates are needed
+            continue
 
-    # If there is no current data present, just pushing new data directly to a csv to be posted (i.e no direct database updates required)
-    if len(curr_data) == 0:
-        print('No existing data for station ' + stat + '. Writing new data to post...')
-        # Writing all new data to csv for posting
-        if updatedf.shape[0] > 0:
-            fpath = data_temp_path + '/' + stat + '_' + datetime.today().strftime('%Y-%m-%d') + '.csv'
-            updatedf.to_csv(fpath, index=False, na_rep='',  )
+        # Removing unncessary station information
+        keylist = ['station_id','location_name']
+        for i in range(0, len(curr_data)): format_get_station_metadata(curr_data[i], keylist)
+
+        # Converting to dataframe
+        currdf = pd.DataFrame(curr_data, index = None)
+
+        # Formatting to upload style
+        currdf = format_curr_data_df(currdf)
+        # Ensuring datetime format is not specified as anything
+        currdf['datetime'] = pd.to_datetime(currdf['datetime'].dt.date)
+
+        # Using an indicator left join to see which rows are new and which already exist
+        left_joined = updatedf.merge(currdf, how='left', indicator=True, on=['ec_station_id', 'datetime'])
+
+        # Those that say left-only new, and therefore need to be directly uploaded
+        addrows = left_joined[left_joined._merge == 'left_only'][['ec_station_id', 'datetime']]
+        addrows = addrows.merge(updatedf, how='left', on=['ec_station_id', 'datetime'])
+
+        # Those that say both need to be updated/edited on the server directly
+        updaterows = left_joined[left_joined._merge == 'both'][['ec_station_id', 'datetime']]
+        updaterows = updaterows.merge(updatedf, how='left', on=['ec_station_id', 'datetime'])
+        # Of the update rows, joining on all columns to only include for update those rows where some value has changed (i.e there are differences between the downloaded and stored versions). In this case, the newly downloaded version takes precedence
+        left_joined = updaterows.merge(currdf, how='left', indicator=True)
+        updaterows = left_joined[left_joined._merge == 'left_only'].drop('_merge', axis = 1)
+
+        # For the rows that need updating
+        for i in range(0, updaterows.shape[0]):
+            # Getting the date of the update row
+            querydate = updaterows.iloc[i,]['datetime']
+            
+            # Obtaining the data dictionary already stored on the server for this date
+            updict = dict()
+            for row in curr_data:
+                if pd.to_datetime(row['datetime']).strftime('%Y-%m-%d') == querydate.strftime('%Y-%m-%d'):
+                    updict = row
+                    break
+            
+            # Getting the new values to edit in this datapoint as a dictionary
+            valuedict = updaterows.to_dict('records')[i]
+
+            # Updating values
+            updict['max_temperature_c'] = emptyIfNan(valuedict['max_temp'])
+            updict['max_temp_flag'] = emptyIfNan(valuedict['max_temp_flag'])
+            updict['min_temperature_c'] = emptyIfNan(valuedict['min_temp'])
+            updict['min_temperature_flag'] = emptyIfNan(valuedict['min_temp_flag'])
+            updict['mean_temperature_c'] = emptyIfNan(valuedict['mean_temp'])
+            updict['mean_temperature_flag'] = emptyIfNan(valuedict['mean_temp_flag'])
+            updict['heat_degree_days_c'] = emptyIfNan(valuedict['heat_deg_days'])
+            updict['heat_degree_days_flag'] = emptyIfNan(valuedict['heat_deg_days_flag'])
+            updict['cool_degree_days_c'] = emptyIfNan(valuedict['cool_deg_days'])
+            updict['cool_degree_days_flag'] = emptyIfNan(valuedict['cool_deg_days_flag'])
+            updict['total_rain_mm'] = emptyIfNan(valuedict['total_rain'])
+            updict['total_rain_flag'] = emptyIfNan(valuedict['total_rain_flag'])
+            updict['total_snow_cm'] = emptyIfNan(valuedict['total_snow'])
+            updict['total_snow_flag'] = emptyIfNan(valuedict['total_snow_flag'])
+            updict['total_precipitation_mm'] = emptyIfNan(valuedict['total_precip'])
+            updict['total_precipitation_flag'] = emptyIfNan(valuedict['total_precip_flag'])
+            updict['snow_on_ground_cm'] = emptyIfNan(valuedict['snow_on_grnd'])
+            updict['snow_on_ground_flag'] = emptyIfNan(valuedict['snow_on_grnd_flag'])
+            updict['direction_max_gust_tens_degree'] = emptyIfNan(valuedict['dir_of_max_gust'])
+            updict['direction_max_gust_flag'] = emptyIfNan(valuedict['dir_of_max_gust_flag'])
+            updict['speed_max_gust_kmh'] = emptyIfNan(valuedict['spd_of_max_gust'])
+            updict['speed_max_gust_flag'] = emptyIfNan(valuedict['spd_of_max_gust_flag'])
+            
+            # Posting updates
+            client.update_climate_data(updict['id'], updict)
         else:
-            print('No rows to post for station ' + stat)
-        # Skipping iteration to the next station, as no updates are needed
-        continue
+            print(str(updaterows.shape[0]) + ' rows updated for station ' + stat)
 
-    # Removing unncessary station information
-    keylist = ['station_id','location_name']
-    for i in range(0, len(curr_data)): format_get_station_metadata(curr_data[i], keylist)
-
-    # Converting to dataframe
-    currdf = pd.DataFrame(curr_data, index = None)
-
-    # Formatting to upload style
-    currdf = format_curr_data_df(currdf)
-    # Ensuring datetime format is not specified as anything
-    currdf['datetime'] = currdf['datetime'].dt.tz_localize(None)
-
-    # Using an indicator left join to see which rows are new and which already exist
-    left_joined = updatedf.merge(currdf, how='left', indicator=True, on=['ec_station_id', 'datetime'])
-
-    # Those that say left-only new, and therefore need to be directly uploaded
-    addrows = left_joined[left_joined._merge == 'left_only'][['ec_station_id', 'datetime']]
-    addrows = addrows.merge(updatedf, how='left', on=['ec_station_id', 'datetime'])
-
-    # Those that say both need to be updated/edited on the server directly
-    updaterows = left_joined[left_joined._merge == 'both'][['ec_station_id', 'datetime']]
-    updaterows = updaterows.merge(updatedf, how='left', on=['ec_station_id', 'datetime'])
-    # Of the update rows, joining on all columns to only include for update those rows where some value has changed (i.e there are differences between the downloaded and stored versions). In this case, the newly downloaded version takes precedence
-    left_joined = updaterows.merge(currdf, how='left', indicator=True)
-    updaterows = left_joined[left_joined._merge == 'left_only'].drop('_merge', axis = 1)
-
-    # For the rows that need updating
-    for i in range(0, updaterows.shape[0]):
-        # Getting the date of the update row
-        querydate = updaterows.iloc[i,]['datetime']
-        print('Updating data on date: ' + querydate.strftime('%Y-%m-%d'))
-        
-        # Obtaining the data dictionary already stored on the server for this date
-        updict = dict()
-        for row in curr_data:
-            if row['datetime'] == querydate.strftime('%Y-%m-%dT%H:%M:%SZ'):
-                updict = row
-                break
-        
-        # Getting the new values to edit in this datapoint as a dictionary
-        valuedict = dict(updaterows.iloc[i,])
-
-        # Updating values
-        updict['max_temperature_c'] = emptyIfNan(valuedict['max_temp'])
-        updict['max_temp_flag'] = emptyIfNan(valuedict['max_temp_flag'])
-        updict['min_temperature_c'] = emptyIfNan(valuedict['min_temp'])
-        updict['min_temperature_flag'] = emptyIfNan(valuedict['min_temp_flag'])
-        updict['mean_temperature_c'] = emptyIfNan(valuedict['mean_temp'])
-        updict['mean_temperature_flag'] = emptyIfNan(valuedict['mean_temp_flag'])
-        updict['heat_degree_days_c'] = emptyIfNan(valuedict['heat_deg_days'])
-        updict['heat_degree_days_flag'] = emptyIfNan(valuedict['heat_deg_days_flag'])
-        updict['cool_degree_days_c'] = emptyIfNan(valuedict['cool_deg_days'])
-        updict['cool_degree_days_flag'] = emptyIfNan(valuedict['cool_deg_days_flag'])
-        updict['total_rain_mm'] = emptyIfNan(valuedict['total_rain'])
-        updict['total_rain_flag'] = emptyIfNan(valuedict['total_rain_flag'])
-        updict['total_snow_cm'] = emptyIfNan(valuedict['total_snow'])
-        updict['total_snow_flag'] = emptyIfNan(valuedict['total_snow_flag'])
-        updict['total_precipitation_mm'] = emptyIfNan(valuedict['total_precip'])
-        updict['total_precipitation_flag'] = emptyIfNan(valuedict['total_precip_flag'])
-        updict['snow_on_ground_cm'] = emptyIfNan(valuedict['snow_on_grnd'])
-        updict['snow_on_ground_flag'] = emptyIfNan(valuedict['snow_on_grnd_flag'])
-        updict['direction_max_gust_tens_degree'] = emptyIfNan(valuedict['dir_of_max_gust'])
-        updict['direction_max_gust_flag'] = emptyIfNan(valuedict['dir_of_max_gust_flag'])
-        updict['speed_max_gust_kmh'] = emptyIfNan(valuedict['spd_of_max_gust'])
-        updict['speed_max_gust_flag'] = emptyIfNan(valuedict['spd_of_max_gust_flag'])
-        
-        # Posting updates
-        client.update_surface_water_data(updict['id'], updict)
-    else:
-        print(str(updaterows.shape[0]) + ' rows updated for station ' + stat)
-
-    # For those that are simple additions, writing to csv for posting
-    if addrows.shape[0] > 0:
-        fpath = data_temp_path + '/' + stat + '_' + datetime.today().strftime('%Y-%m-%d') + '.csv'
-        addrows.to_csv(fpath, index=False, na_rep='')
-        print(str(addrows.shape[0]) + ' rows to post for station ' + stat)
-    else:
-        print('0 rows to post for station ' + stat)
-
-print('Completed station data updates')
+        # For those that are simple additions, writing to csv for posting
+        if addrows.shape[0] > 0:
+            fpath = data_temp_path + '/' + stat + '_' + datetime.today().strftime('%Y-%m-%d') + '.csv'
+            addrows.to_csv(fpath, index=False, na_rep='')
+            print(str(addrows.shape[0]) + ' rows to post for station ' + stat)
+        else:
+            print('0 rows to post for station ' + stat)
+    print('Completed station data updates')
 
 # %% ===== Posting newly data csvs =====
 
@@ -424,20 +447,18 @@ if len(fnames) == 0:
 else:
     # Calling the client to post each file
     for name in fnames:
-        print('Uploading new data from file: ' + name)
         fpath = data_temp_path + '/' + name
         try:
             client.post_csv_file(fpath, get_climate_mapping(file_mappings))
             fclean.extend([name])
+            print('Uploaded new data from file: ' + name)
         except:
             print('Error with station: ' + name)
             errstats.extend([name])
+print('Completed new data posting')
             
 # Cleaning temporary directories
 for name in fclean:
     print('Cleaning file: ' + name)
     os.remove(data_temp_path + '/' + name)
-
-print('Completed new data posting')
-
 # %%

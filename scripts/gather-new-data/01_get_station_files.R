@@ -5,31 +5,41 @@
 
 # ==== Libraries ====
 library(rjson)
+library(readr)
+library(dplyr)
 
-# ==== Paths ====
+# ==== File paths ====
 
-# Station file paths JSON
-station_path_file <- 'scripts/gather-new-data/station-file-paths.json'
-
-# Path to output
-out_path <- 'data/stations'
+# Reading file paths from JSON
+fpaths <- fromJSON(file='options/filepaths.json')
 
 # ==== Copying station metadata files ====
 
-# Reading paths
-fpaths <- fromJSON(file = station_path_file)
-
 # Copying pacfish
-file.copy(from = fpaths$pacfish, 
-          to = file.path(out_path, 'pacfish_station_data.csv'), 
-          overwrite = T)
+pacfish <- read_csv(fpaths$`pacfish-metadata-infile`)
+pacfish %>% 
+  # Removing stations with missing location data - can't do anything with these
+  filter(!is.na(long) | !is.na(lat)) %>% 
+  # Writing to disk
+  write_csv(fpaths$`pacfish-metadata`)
 
 # Copying ecclimate
-file.copy(from = fpaths$ecclimate, 
-          to = file.path(out_path, 'ecclimate_station_data.csv'), 
+file.copy(from = fpaths$`ecclimate-metadata-infile`, 
+          to = fpaths$`ecclimate-metadata`, 
           overwrite = T)
 
-# Copying hydat
-file.copy(from = fpaths$hydat, 
-          to = file.path(out_path, 'hydat_station_data.csv'), 
-          overwrite = T)
+# Copying hydat - first formatting the columns since they change often and the
+# I/O needs to be controlled
+hydat <- read_csv(fpaths$`hydat-metadata-infile`)
+hydat_formatted <- hydat %>% 
+  select(STATION_NUMBER, STATION_NAME, 
+         'STATION_STATUS' = HYD_STATUS,
+         DRAINAGE_AREA_GROSS, DRAINAGE_AREA_EFFECT,
+         RHBN, REAL_TIME,
+         LONGITUDE, LATITUDE, DATUM_ID) %>% 
+  mutate(STATION_STATUS = ifelse(STATION_STATUS == 'ACTIVE-REALTIME', 
+                                 'ACTIVE', 
+                                 STATION_STATUS))
+# Writing the formatted version
+write_csv(hydat_formatted, fpaths$`hydat-metadata`)
+

@@ -17,7 +17,10 @@ source('scripts/help_funcs.R')
 # ==== Initializing option parsing ====
 option_list <-  list(
   make_option(c("-s", "--startdate"), type="character", default=(Sys.Date() - 30), 
-              help="A year month combination indicating the start date for data download. [Default= %default]", 
+              help="A year month combination indicating the start date for data to post to depth2water. Defaults to 30 days before today. [Default= %default]", 
+              metavar="character"),
+  make_option(c("-e", "--enddate"), type="character", default=(Sys.Date()), 
+              help="A year month combination indicating the end date for data to post to depth2water. Defaults to the current date [Default= %default]", 
               metavar="character")
 )
 
@@ -27,17 +30,21 @@ opt = parse_args(opt_parser)
 
 # ==== Paths and global variables ====
 
-# Path to credentials
-dbase_credentials_path <- 'credentials.json'
+# Database credentials
+creds <- fromJSON(file = 'options/dbase_credentials.json')
 
-# Path to exported csvs
-csv_path <- 'data/csv/hydat'
-dir_check_create(csv_path)
+# Filepaths for gathering functions
+fpaths <- fromJSON(file='options/filepaths.json')
+
+# Ensuring directory exists for holding posting data data
+dir_check_create(fpaths$`daily-post-dir`)
+# Creating a sub-directory for EC climate, and deleting any prior contents if
+# they exist
+out_dir <- file.path(fpaths$`daily-post-dir`, 'hydat')
+if(dir.exists(out_dir)) unlink(out_dir, recursive=T)
+dir_check_create(out_dir)
 
 # ==== Opening database connection ====
-
-# Credentials files
-creds <- fromJSON(file = 'credentials.json')
 
 # Opening database connection
 conn <- dbConnect(RPostgres::Postgres(),
@@ -48,12 +55,16 @@ conn <- dbConnect(RPostgres::Postgres(),
 
 # Flow data
 query <- format_simple_query('bchydat', 'flow', 
-                             date_col = 'Date', start_date = ymd(opt$startdate))
+                             date_col = 'Date', 
+                             start_date = ymd(opt$startdate),
+                             end_date = ymd(opt$enddate))
 flow <- dbGetQuery(conn, query)
 
 # Level data
 query <- format_simple_query('bchydat', 'level', 
-                             date_col = 'Date', start_date = ymd(opt$startdate))
+                             date_col = 'Date', 
+                             start_date = ymd(opt$startdate),
+                             end_date = ymd(opt$enddate))
 level <- dbGetQuery(conn, query)
 
 # Joining to a single table
@@ -75,8 +86,21 @@ hydat <- flow %>%
 
 # ==== Writing to CSV ====
 
-# Writing to csv
-write_csv(hydat, file.path(csv_path, 'bchydat-daily.csv'))
+# Writing if there are data, otherwise printing a nodata message
+if(nrow(hydat) > 0){
+  # Writing to csv
+  write_csv(hydat, file.path(out_dir, 'hydat-daily.csv'))
+}else{
+  print(
+    paste0(
+      'No new data available for Hydat between ',
+      as.character(opt$startdate),
+      ' and ',
+      as.character(opt$enddate),
+      '. No CSV exported.'
+    )
+  )
+}
 
 # Closing database connection
 dbDisconnect(conn)
