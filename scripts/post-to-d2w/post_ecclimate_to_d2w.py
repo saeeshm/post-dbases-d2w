@@ -225,6 +225,8 @@ def format_curr_data_df(currdf):
     }
     outdf = outdf.astype(dtype_dict)
     outdf['datetime'] = pd.to_datetime(outdf.datetime, utc=True)
+    # Replacing "None" character values that randomly get created with the empty string
+    outdf.replace('None', '', inplace=True)
     return outdf
 
 # Function that returns an empty string if the input is NaN
