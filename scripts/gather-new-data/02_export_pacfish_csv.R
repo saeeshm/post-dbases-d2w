@@ -18,8 +18,8 @@ source('scripts/help_funcs.R')
 
 # ==== Initializing option parsing ====
 option_list <-  list(
-  make_option(c("-s", "--startdate"), type="character", default=(Sys.Date() - 30), 
-              help="A year month combination indicating the start date for data to post to depth2water. Defaults to 30 days before today. [Default= %default]", 
+  make_option(c("-s", "--startdate"), type="character", default=(Sys.Date() - 31), 
+              help="A year month combination indicating the start date for data to post to depth2water. Defaults to 31 days before today. [Default= %default]", 
               metavar="character"),
   make_option(c("-e", "--enddate"), type="character", default=(Sys.Date()), 
               help="A year month combination indicating the end date for data to post to depth2water. Defaults to the current date [Default= %default]", 
@@ -39,11 +39,7 @@ creds <- fromJSON(file = 'options/dbase_credentials.json')
 fpaths <- fromJSON(file='options/filepaths.json')
 
 # Ensuring directory exists for holding posting data data
-dir_check_create(fpaths$`daily-post-dir`)
-# Creating a sub-directory for EC climate, and deleting any prior contents if
-# they exist
-out_dir <- file.path(fpaths$`daily-post-dir`, 'pacfish')
-if(dir.exists(out_dir)) unlink(out_dir, recursive=T)
+out_dir <- fpaths$`update-data-dir`
 dir_check_create(out_dir)
 
 # ==== Opening database connection ====
@@ -91,8 +87,6 @@ if(length(dfs) > 0){
   
   # Writing to csv
   write_csv(daily, file.path(out_dir, 'pacfish-daily.csv'))
-  rm(daily)
-  gc()
 }else{
   print(
     paste0(

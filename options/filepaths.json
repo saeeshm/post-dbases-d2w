@@ -1,10 +1,7 @@
 {
-  "pacfish-metadata-infile": "/Users/saeesh/itme/code/GWProjects/databases/pacfish-hydrometric/data/pacfish_station_data.csv",
-  "ecclimate-metadata-infile": "/Users/saeesh/itme/code/GWProjects/databases/ec-climate/data/station_list_BC.csv",
-  "hydat-metadata-infile": "/Users/saeesh/itme/code/GWProjects/databases/bc-hydat/data/bc_hydat_station_metadata.csv",
   "pacfish-metadata": "data/stations/pacfish-metadata.csv",
   "ecclimate-metadata": "data/stations/ecclim-metadata.csv",
   "hydat-metadata": "data/stations/hydat-metadata.csv",
-  "daily-post-dir": "data/topost",
+  "update-data-dir": "data/update",
   "temp-dir": "data/temp"
 }

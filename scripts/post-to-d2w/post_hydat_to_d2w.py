@@ -41,7 +41,7 @@ fpaths = load(open('options/filepaths.json',))
 station_file_path = fpaths['hydat-metadata']
 
 # Path to daily data file
-daily_data_path = fpaths['daily-post-dir'] + '/hydat/hydat-daily.csv'
+daily_data_path = fpaths['update-data-dir'] + '/hydat-daily.csv'
 
 # Path to temporary directory for storing posting files
 data_temp_path = fpaths['temp-dir'] + '/hydat'
@@ -64,12 +64,12 @@ OWNER_ID = 7
 
 # Creating a client
 client = create_client(
-    creds['username'], 
-    creds['password'], 
-    creds['client_id'], 
-    creds['client_secret'], 
-    host = 'localhost:8000', 
-    scheme='http'
+    username=creds['username'], 
+    password=creds['password'], 
+    client_id=creds['client_id'], 
+    client_secret=creds['client_secret'], 
+    host=creds['host'], 
+    scheme=creds['scheme']
 )
 
 # %% ===== Reading data =====
