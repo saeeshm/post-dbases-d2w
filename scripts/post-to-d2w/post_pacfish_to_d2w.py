@@ -54,7 +54,7 @@ print('Start Date: ' + start_date)
 print('End Date: ' + end_date)
 
 #%% Manual data inputs - for use when script testing
-# start_date = (datetime.today() - timedelta(days=31)).strftime("%Y-%m-%dT00:00:00-00:00")
+# start_date = (datetime.today() - timedelta(days=331)).strftime("%Y-%m-%dT00:00:00-00:00")
 # end_date =datetime.today().strftime("%Y-%m-%dT00:00:00-00:00")
 
 # %% ===== Initializing client =====
@@ -136,7 +136,11 @@ def format_curr_data_df(currdf):
         'water_level': 'float64',
         'water_temperature': 'float64'
     }
+    # Ensuring the datetime column is a string to begin with
+    outdf.datetime = outdf.datetime.astype('string')
+    # Enjorcing types
     outdf = outdf.astype(dtype_dict)
+    # Ensuring datetime is correctly formatted as a date
     outdf['datetime'] = pd.to_datetime(outdf.datetime, utc=True)
     return outdf
 
@@ -228,7 +232,8 @@ else:
 
         # If there is current data, getting only relevant columns
         keylist = ['station_id','location_name']
-        for i in range(0, len(curr_data)): format_get_station_metadata(curr_data[i], keylist)
+        for i in range(0, len(curr_data)): 
+            format_get_station_metadata(curr_data[i], keylist)
 
         # Converting to dataframe
         currdf = pd.DataFrame(curr_data, index = None)
