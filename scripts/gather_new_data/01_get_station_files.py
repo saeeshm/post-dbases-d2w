@@ -63,6 +63,9 @@ cursor.execute(query)
 col_names = [i[0] for i in cursor.description]
 ecclimate = pd.DataFrame(cursor.fetchall(), columns=col_names)
 
+# Ensuring the station ID column is a string
+ecclimate.loc[:,'Station ID'] = pd.to_numeric(ecclimate['Station ID'], downcast='integer').astype(str)
+
 # Writing to csv
 ecclimate.to_csv(fpaths['ecclimate-metadata'], index=False)
 

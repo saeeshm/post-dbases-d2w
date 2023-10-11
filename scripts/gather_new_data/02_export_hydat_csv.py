@@ -64,7 +64,7 @@ end_date = options.enddate
 
 # %% ==== Gathering update data ====
 
-# Shared query options options
+# Shared query options
 schema = 'bchydat'
 datecol = 'Date'
 
@@ -124,9 +124,9 @@ daily['pub_status'] = [True if status == 'Published' else False for status in da
 
 # %%  ==== Exporting to CSV ====
 if daily.shape[0] == 0:
-    print("No new data available for EC-Climate between {} and {}. No CSV exported".format(start_date, end_date))
+    print("No new data available for Hydat between {} and {}. No CSV exported".format(start_date, end_date))
 else:
     print("Exporting data to CSV")
-    daily.to_csv(out_dir + '/ecclimate-daily.csv', index=False)
+    daily.to_csv(out_dir + '/hydat-daily.csv', index=False)
 
 # %%

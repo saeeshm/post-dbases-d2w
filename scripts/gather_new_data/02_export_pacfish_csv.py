@@ -101,18 +101,14 @@ tablist = {formatName(param): splitTable(param) for param in dat.Parameter.uniqu
 daily = tablist.pop(list(tablist.keys())[0])
 for key in tablist.keys():
     newtab = tablist.get(key)
-    newtab.drop(columns=['station_name'], inplace=True)
-    daily = daily.merge(newtab, how='outer', on=['station_number', 'datetime'])
+    daily = daily.merge(newtab, how='outer', on=['station_number', 'station_name', 'datetime'])
     print('Merged data for parameter ' + key)
 
 # %%  ==== Exporting to CSV ====
 if daily.shape[0] == 0:
-    print("No new data available for EC-Climate between {} and {}. No CSV exported".format(start_date, end_date))
+    print("No new data available for Pacfish between {} and {}. No CSV exported".format(start_date, end_date))
 else:
     print("Exporting data to CSV")
-    daily.to_csv(out_dir + '/ecclimate-daily.csv', index=False)
-
-
-
+    daily.to_csv(out_dir + '/pacfish-daily.csv', index=False)
 
 # %%
