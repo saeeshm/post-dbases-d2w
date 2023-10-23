@@ -27,17 +27,17 @@ parser.add_option(
 
 # %% ===== Paths and global variables =====
 
+# Which database is being update?
+schema = 'pacfish'
+
+# The D2W owner ID for this database
+OWNER_ID = 9
+
 # Client credentials from JSON
 creds = load(open('options/client_credentials.json',))
 
 # Filepaths
 fpaths = load(open('options/filepaths.json', ))
-
-# Which database is being update?
-schema = 'hydat'
-
-# The D2W owner ID for this database
-OWNER_ID = 9
 
 # Path to station file
 station_file_path = fpaths[schema + '-metadata']
@@ -115,12 +115,12 @@ client = create_client(
 #%% Manual data inputs - for use when script testing
 # start_date = (datetime.today() - timedelta(days=331)).strftime("%Y-%m-%dT00:00:00-00:00")
 # end_date =datetime.today().strftime("%Y-%m-%dT00:00:00-00:00")
-start_date = (datetime.strptime('2023-05-01', '%Y-%m-%d') - timedelta(days=31)).strftime("%Y-%m-%dT00:00:00-00:00")
-end_date =datetime.strptime('2023-05-01', '%Y-%m-%d').strftime("%Y-%m-%dT00:00:00-00:00")
+# start_date = (datetime.strptime('2023-05-01', '%Y-%m-%d') - timedelta(days=31)).strftime("%Y-%m-%dT00:00:00-00:00")
+# end_date =datetime.strptime('2023-05-01', '%Y-%m-%d').strftime("%Y-%m-%dT00:00:00-00:00")
 
 #%% Setting update daterange
-# start_date = options.startdate
-# end_date = options.enddate
+start_date = options.startdate
+end_date = options.enddate
 print('Start Date: ' + start_date)
 print('End Date: ' + end_date)
 
@@ -169,7 +169,7 @@ for stat in stat_ids:
             print('Station status has changed - updating...')
             updict = result['results'][0]
             # updict['owner'] = OWNER_ID
-            updict['monitoring_status'] = metaparams['station_status']
+            updict['monitoring_status'] = emptyIfNan(metaparams['station_status'])
             updict['longitude'] = emptyIfNan(metaparams['long'])
             updict['latitude'] = emptyIfNan(metaparams['lat'])
             client.update_station(id=updict['id'], data=updict)
@@ -231,6 +231,7 @@ else:
             querydf=querydf, 
             statid_col=postd2w.postdf_statcol, 
             dtime_col=postd2w.postdf_datecol,
+            collist = list(postd2w.ps_col_mappings.values()),
             statname_col = postd2w.ps_col_mappings['location_name']
         )
 
@@ -252,7 +253,8 @@ else:
             valuedict.pop(postd2w.postdf_statcol)
             valuedict.pop(postd2w.postdf_datecol)
             # Also removing the location name column, as this is set by the station table and so updates here are redundant
-            valuedict.pop(postd2w.ps_col_mappings['location_name'])
+            if postd2w.ps_col_mappings['location_name'] in valuedict.keys():
+                valuedict.pop(postd2w.ps_col_mappings['location_name'])
 
             # Updating values for every shared column (based on the provided mappings dictionary)
             for key, value in postd2w.ps_col_mappings.items():

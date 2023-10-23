@@ -61,10 +61,18 @@ def format_queried_df(querydf, cols_dict, dtype_dict, dtime_col):
     qdf.loc[:, dtime_col] = pd.to_datetime(pd.to_datetime(qdf[dtime_col], utc=False).dt.date)
     return qdf
 
-def separate_add_vs_update_rows(updatedf, querydf, statid_col, dtime_col, statname_col=None, roundfigs=5):
+def separate_add_vs_update_rows(updatedf, querydf, statid_col, dtime_col, collist, statname_col=None, roundfigs=5):
+    # Keeping only columns named in the mappings col-list - these are the only ones that see updates and changes between the new data and the server data
+    updatedf = updatedf[collist]
+    querydf = querydf[collist]
+    
     # Rounding all numbers to 5 significant figures to make comparisons less subject to small variations
     updatedf = updatedf.round(roundfigs)
     querydf = querydf.round(roundfigs)
+
+    # Replacing all "None" characters with empty strings for the sake of comparison
+    querydf = querydf.replace('None', '')
+    updatedf = updatedf.replace('None', '')
 
     # Using an indicator left join to see which rows from the update table are new and which already exist
     left_joined = updatedf.merge(querydf, how='left', indicator=True, on=[statid_col, dtime_col])
@@ -78,7 +86,7 @@ def separate_add_vs_update_rows(updatedf, querydf, statid_col, dtime_col, statna
     update_index_table = left_joined.loc[left_joined._merge == 'both', ].loc[:, [statid_col, dtime_col]]
     update_index_table = update_index_table.merge(updatedf, how='left', on=[statid_col, dtime_col])
 
-    # On these rows, performing an indexed join using all columns to flag which rows had a value change (i.e there are differences between the stored and new/updated versions). In this case, the newly downloaded version takes precedence.
+    # On these rows, performing a join using all columns to flag which rows had a value change (i.e there are differences between the stored and new/updated versions). In this case, the newly downloaded version takes precedence.
     if statname_col is None:
         update_index_table = update_index_table.merge(querydf, how='left', indicator=True)
     else:

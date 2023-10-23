@@ -14,7 +14,13 @@ class PostD2W:
         self.ps_col_mappings = ps_col_mappings
 
         # Reading metadata
-        self.metadata = pd.read_csv(metadata_path, dtype=metadata_dtypes)
+        self.metadata = pd.read_csv(
+            metadata_path, 
+            # Splitting out non-date columns
+            dtype={key:value for key, value in metadata_dtypes.items() if value != 'datetime64'}, 
+            # Passing datetime columns to parse dates
+            parse_dates=[key for key, value in metadata_dtypes.items() if value == 'datetime64']
+        )
         self.metadata = self.metadata.astype(metadata_dtypes)
 
         # Reading table of data to post/update

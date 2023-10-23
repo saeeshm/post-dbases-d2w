@@ -9,7 +9,7 @@ from optparse import OptionParser
 from datetime import datetime, timedelta
 from scripts.post_to_d2w.PostD2W import PostD2W
 from scripts.post_to_d2w.post_utils import *
-from depth2water import create_client, get_surface_water_mapping, get_surface_water_station_mapping
+from depth2water import create_client, get_climate_mapping, get_climate_station_mapping
 
 #%% Initializing option parsing
 parser = OptionParser()
@@ -27,17 +27,17 @@ parser.add_option(
 
 # %% ===== Paths and global variables =====
 
-# Client credentials from JSON
-creds = load(open('options/client_credentials.json',))
-
-# Filepaths
-fpaths = load(open('options/filepaths.json', ))
-
 # Which database is being update?
 schema = 'ecclimate'
 
 # The D2W owner ID for this database
 OWNER_ID = 8
+
+# Client credentials from JSON
+creds = load(open('options/client_credentials.json',))
+
+# Filepaths
+fpaths = load(open('options/filepaths.json', ))
 
 # Path to station file
 station_file_path = fpaths[schema + '-metadata']
@@ -144,7 +144,7 @@ postd2w = PostD2W(
 # %% ===== Initializing client =====
 
 # Setting up logging
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 
 # Creating a client
 client = create_client(
@@ -159,12 +159,12 @@ client = create_client(
 #%% Manual data inputs - for use when script testing
 # start_date = (datetime.today() - timedelta(days=331)).strftime("%Y-%m-%dT00:00:00-00:00")
 # end_date =datetime.today().strftime("%Y-%m-%dT00:00:00-00:00")
-start_date = (datetime.strptime('2023-05-01', '%Y-%m-%d') - timedelta(days=31)).strftime("%Y-%m-%dT00:00:00-00:00")
-end_date =datetime.strptime('2023-05-01', '%Y-%m-%d').strftime("%Y-%m-%dT00:00:00-00:00")
+# start_date = (datetime.strptime('2023-05-01', '%Y-%m-%d') - timedelta(days=31)).strftime("%Y-%m-%dT00:00:00-00:00")
+# end_date =datetime.strptime('2023-05-01', '%Y-%m-%d').strftime("%Y-%m-%dT00:00:00-00:00")
 
 #%% Setting update daterange
-# start_date = options.startdate
-# end_date = options.enddate
+start_date = options.startdate
+end_date = options.enddate
 print('Start Date: ' + start_date)
 print('End Date: ' + end_date)
 
@@ -174,19 +174,19 @@ print('End Date: ' + end_date)
 stat_ids = postd2w.metadata[postd2w.metadata_statcol].unique()
 
 for stat in stat_ids:
-    # Checking if the station is present
+    # Checking if the station is present,
     result = client.get_station_by_station_id(stat)
-     # Removing results that are not surface water stations
+     # Removing results that are not the right type
     result['results'] = [station for station in result['results'] if station['monitoring_type'] == postd2w.monitoring_type]
     # If not, creating it
     if len(result['results']) == 0:
         print('Creating station ' + stat)
-        station_mapping = get_surface_water_station_mapping({
+        station_mapping = get_climate_station_mapping({
             'station_id': stat,
             'owner': OWNER_ID,
-            'location_name': postd2w.pull_from_metadata(stat, 'STATION_NAME'),
-            'longitude': postd2w.pull_from_metadata(stat, 'LONGITUDE'),
-            'latitude': postd2w.pull_from_metadata(stat, 'LATITUDE'),
+            'location_name': postd2w.pull_from_metadata(stat, 'Name'),
+            'longitude': postd2w.pull_from_metadata(stat, 'Longitude (Decimal Degrees)'),
+            'latitude': postd2w.pull_from_metadata(stat, 'Latitude (Decimal Degrees)'),
             'prov_terr_state_lc': 'BC'
         })
         new_station = client.create_station(station_mapping)
@@ -207,13 +207,13 @@ for stat in stat_ids:
         isdiscrepant = any([
             metaparams['station_status'] != pull_from_query(result, 'monitoring_status'),
             metaparams['long'] != pull_from_query(result, 'longitude'),
-            metaparams['lat']!= pull_from_query(result, 'latitude')
+            metaparams['lat'] != pull_from_query(result, 'latitude')
         ])
         if isdiscrepant:
             print('Station status has changed - updating...')
             updict = result['results'][0]
             # updict['owner'] = OWNER_ID
-            updict['monitoring_status'] = metaparams['station_status']
+            updict['monitoring_status'] = emptyIfNan(metaparams['station_status'])
             updict['longitude'] = emptyIfNan(metaparams['long'])
             updict['latitude'] = emptyIfNan(metaparams['lat'])
             client.update_station(id=updict['id'], data=updict)
@@ -275,6 +275,7 @@ else:
             querydf=querydf, 
             statid_col=postd2w.postdf_statcol, 
             dtime_col=postd2w.postdf_datecol,
+            collist = list(postd2w.ps_col_mappings.values()),
             statname_col = postd2w.ps_col_mappings['location_name']
         )
 
@@ -296,7 +297,8 @@ else:
             valuedict.pop(postd2w.postdf_statcol)
             valuedict.pop(postd2w.postdf_datecol)
             # Also removing the location name column, as this is set by the station table and so updates here are redundant
-            valuedict.pop(postd2w.ps_col_mappings['location_name'])
+            if postd2w.ps_col_mappings['location_name'] in valuedict.keys():
+                valuedict.pop(postd2w.ps_col_mappings['location_name'])
 
             # Updating values for every shared column (based on the provided mappings dictionary)
             for key, value in postd2w.ps_col_mappings.items():
@@ -304,7 +306,7 @@ else:
                 updict[key] = emptyIfNan(valuedict[value])
             
             # Posting updates
-            client.update_surface_water_data(updict['id'], updict)
+            client.update_climate_data(updict['id'], updict)
         else:
             print(str(updaterows.shape[0]) + ' rows updated for station ' + stat)
 
@@ -324,7 +326,11 @@ else:
 file_mappings = postd2w.ps_col_mappings.copy()
 file_mappings.update({
     'owner': OWNER_ID,
-    'comments': ''
+    'comments': '',
+    # Extra columns
+    'water_temperature_c': '',
+    'water_temperature_flag': '',
+    'published': True
 })
 
 # File names of posting csvs
@@ -341,7 +347,7 @@ else:
     for name in fnames:
         fpath = data_temp_path + '/' + name
         try:
-            client.post_csv_file(fpath, get_surface_water_mapping(file_mappings))
+            client.post_csv_file(fpath, get_climate_mapping(file_mappings))
             fclean.extend([name])
             print('Uploaded new data from file: ' + name)
         except:
