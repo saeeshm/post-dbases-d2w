@@ -175,9 +175,9 @@ stat_ids = postd2w.metadata[postd2w.metadata_statcol].unique()
 
 for stat in stat_ids:
     # Checking if the station is present,
-    result = client.get_station_by_station_id(stat)
+    result = client.get_station_by_station_id(stat, monitoring_type=postd2w.monitoring_type)
      # Removing results that are not the right type
-    result['results'] = [station for station in result['results'] if station['monitoring_type'] == postd2w.monitoring_type]
+    # result['results'] = [station for station in result['results'] if station['monitoring_type'] == postd2w.monitoring_type]
     # If not, creating it
     if len(result['results']) == 0:
         print('Creating station ' + stat)
@@ -213,9 +213,12 @@ for stat in stat_ids:
             print('Station status has changed - updating...')
             updict = result['results'][0]
             # updict['owner'] = OWNER_ID
-            updict['monitoring_status'] = emptyIfNan(metaparams['station_status'])
-            updict['longitude'] = emptyIfNan(metaparams['long'])
-            updict['latitude'] = emptyIfNan(metaparams['lat'])
+            # updict['monitoring_status'] = emptyIfNan(metaparams['station_status'])
+            # updict['longitude'] = emptyIfNan(metaparams['long'])
+            # updict['latitude'] = emptyIfNan(metaparams['lat'])
+            updict['monitoring_status'] = metaparams['station_status']
+            updict['longitude'] = metaparams['long']
+            updict['latitude'] = metaparams['lat']
             client.update_station(id=updict['id'], data=updict)
         else:
             print('No changes made to station ' + stat)
@@ -248,7 +251,7 @@ else:
             if updatedf.shape[0] > 0:
                 print('No existing data in this time period for station ' + stat + '. Writing all new data to post...')
                 fpath = data_temp_path + '/' + stat + '_' + datetime.today().strftime('%Y-%m-%d') + '.csv'
-                updatedf.to_csv(fpath, index=False, na_rep='NA')
+                updatedf.to_csv(fpath, index=False)
             else:
                 print('No rows to post for station ' + stat)
             # Skipping iteration to the next station, as no updates are needed
@@ -303,7 +306,8 @@ else:
             # Updating values for every shared column (based on the provided mappings dictionary)
             for key, value in postd2w.ps_col_mappings.items():
                 if(value not in valuedict.keys()): continue
-                updict[key] = emptyIfNan(valuedict[value])
+                # updict[key] = emptyIfNan(valuedict[value])
+                updict[key] = valuedict[value]
             
             # Posting updates
             client.update_climate_data(updict['id'], updict)
@@ -313,7 +317,7 @@ else:
         # For those that are simple additions, writing to csv for posting
         if addrows.shape[0] > 0:
             fpath = data_temp_path + '/' + stat + '_' + datetime.today().strftime('%Y-%m-%d') + '.csv'
-            addrows.to_csv(fpath, index=False, na_rep='')
+            addrows.to_csv(fpath, index=False)
             print(str(addrows.shape[0]) + ' rows to post for station ' + stat)
         else:
             print('0 rows to post for station ' + stat)
@@ -328,35 +332,35 @@ file_mappings.update({
     'owner': OWNER_ID,
     'comments': '',
     # Extra columns
-    'water_temperature_c': '',
-    'water_temperature_flag': '',
+    # 'water_temperature_c': '',
+    # 'water_temperature_flag': '',
     'published': True
 })
 
 # File names of posting csvs
 fnames = [file for file in os.listdir(data_temp_path) if file.endswith('csv')]
 
-# Empty list to store the filenames of cleaning CSV
-fclean = []
-errstats = []
+# # Empty list to store the filenames of cleaning CSV
+# fclean = []
+# errstats = []
 
-if len(fnames) == 0:
-    print('No new data files to post. Process complete.')
-else:
-    # Calling the client to post each file
-    for name in fnames:
-        fpath = data_temp_path + '/' + name
-        try:
-            client.post_csv_file(fpath, get_climate_mapping(file_mappings))
-            fclean.extend([name])
-            print('Uploaded new data from file: ' + name)
-        except:
-            print('Error with station: ' + name)
-            errstats.extend([name])
-    print('Completed new data posting')
+# if len(fnames) == 0:
+#     print('No new data files to post. Process complete.')
+# else:
+#     # Calling the client to post each file
+#     for name in fnames:
+#         fpath = data_temp_path + '/' + name
+#         try:
+#             client.post_csv_file(fpath, get_climate_mapping(file_mappings))
+#             fclean.extend([name])
+#             print('Uploaded new data from file: ' + name)
+#         except:
+#             print('Error with station: ' + name)
+#             errstats.extend([name])
+#     print('Completed new data posting')
 
-# Cleaning temporary directories
-for name in fclean:
-    print('Cleaning file: ' + name)
-    os.remove(data_temp_path + '/' + name)
+# # Cleaning temporary directories
+# for name in fclean:
+#     print('Cleaning file: ' + name)
+#     os.remove(data_temp_path + '/' + name)
 # %%
